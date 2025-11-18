@@ -1,17 +1,3 @@
-# from pydantic import BaseModel
-# from datetime import datetime
-# from typing import Optional
-# from models import TaskType, TaskFrequency
-#
-# class LoginSchema(BaseModel):
-#     username: str
-#     password: str
-#
-# class UserCreateSchema(BaseModel):
-#     username: str
-#     password: str
-#     phone_number: str
-#
 # class TaskCreateSchema(BaseModel):
 #     title: str
 #     description: str
@@ -30,8 +16,7 @@
 #     task_id: int
 
 
-# schemas.py
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
@@ -45,13 +30,12 @@ class UserCreateSchema(BaseModel):
     username: str
     password: str
     phone_number: str
-    email: Optional[EmailStr] = None
+    is_admin: Optional[bool] = 0
 
 
 class UserResponseSchema(BaseModel):
     id: int
     username: str
-    email: Optional[str] = None
     phone_number: str
     is_active: bool
     created_at: datetime

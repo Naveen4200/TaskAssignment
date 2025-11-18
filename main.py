@@ -96,11 +96,6 @@ app.add_middleware(
 app.include_router(auth_router)
 
 
-@app.get("/")
-async def root():
-    return {"message": "Task Management System API"}
-
-
 if __name__ == "__main__":
     import uvicorn
 
