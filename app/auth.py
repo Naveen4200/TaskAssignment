@@ -76,7 +76,7 @@ async def create_user(
 
 
 @router.post("/login")
-async def login(
+async def login_user(
         credentials: LoginSchema,
         db: Session = Depends(get_db)
 ):
