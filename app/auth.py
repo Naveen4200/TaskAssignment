@@ -30,6 +30,47 @@ def create_default_admin(db: Session):
         print("Default admin created: admin/admin123")
 
 
+@router.post("/login")
+async def login_user(
+        credentials: LoginSchema,
+        db: Session = Depends(get_db)
+):
+    # Ensure default admin exists
+    create_default_admin(db)
+
+    # Fetch user (admin or user)
+    user = db.query(User).filter(User.username == credentials.username).first()
+
+    if not user or not verify_password(credentials.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password"
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+
+    # Create JWT token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={
+            "sub": user.username,
+            "user_id": user.id,
+            "is_admin": user.is_admin
+        },
+        expires_delta=access_token_expires
+    )
+
+    return TokenSchema(
+        access_token=access_token,
+        token_type="bearer",
+        user_type="admin" if user.is_admin else "user"
+    )
+
+
 @router.post("/admin/create-user", response_model=UserResponseSchema)
 async def create_user(
         user_data: UserCreateSchema,
@@ -72,47 +113,6 @@ async def create_user(
         phone_number=new_user.phone_number,
         is_active=new_user.is_active,
         created_at=new_user.created_at
-    )
-
-
-@router.post("/login")
-async def login_user(
-        credentials: LoginSchema,
-        db: Session = Depends(get_db)
-):
-    # Ensure default admin exists
-    create_default_admin(db)
-
-    # Fetch user (admin or user)
-    user = db.query(User).filter(User.username == credentials.username).first()
-
-    if not user or not verify_password(credentials.password, user.hashed_password):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password"
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
-        )
-
-    # Create JWT token
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={
-            "sub": user.username,
-            "user_id": user.id,
-            "is_admin": user.is_admin
-        },
-        expires_delta=access_token_expires
-    )
-
-    return TokenSchema(
-        access_token=access_token,
-        token_type="bearer",
-        user_type="admin" if user.is_admin else "user"
     )
 
 

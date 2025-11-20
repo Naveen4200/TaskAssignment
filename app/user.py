@@ -41,10 +41,7 @@ async def mark_task_complete(
     """
     Mark task as complete with message
     """
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.assigned_to == current_user.id
-    ).first()
+    task = db.query(Task).filter(Task.id == task_id, Task.assigned_to == current_user.id).first()
 
     if not task:
         raise HTTPException(
@@ -59,7 +56,7 @@ async def mark_task_complete(
         )
 
     task.is_completed = True
-    task.completed_at = datetime.utcnow()
+    task.completed_at = datetime.now()
     task.completion_message = completion_data.completion_message
 
     db.commit()
@@ -76,13 +73,7 @@ async def complete_task_with_image(
         current_user: User = Depends(get_current_user),
         db: Session = Depends(get_db)
 ):
-    """
-    Mark task as complete with image upload
-    """
-    task = db.query(Task).filter(
-        Task.id == task_id,
-        Task.assigned_to == current_user.id
-    ).first()
+    task = db.query(Task).filter(Task.id == task_id, Task.assigned_to == current_user.id).first()
 
     if not task:
         raise HTTPException(
@@ -101,7 +92,7 @@ async def complete_task_with_image(
 
     # Save image
     file_extension = os.path.splitext(image.filename)[1]
-    filename = f"task_{task_id}_{current_user.id}_{datetime.utcnow().timestamp()}{file_extension}"
+    filename = f"task_{task_id}_{current_user.id}_{datetime.now().timestamp()}{file_extension}"
     file_path = f"uploads/{filename}"
 
     with open(file_path, "wb") as buffer:
@@ -109,7 +100,7 @@ async def complete_task_with_image(
 
     # Update task
     task.is_completed = True
-    task.completed_at = datetime.utcnow()
+    task.completed_at = datetime.now()
     task.completion_message = completion_message
     task.completion_image = file_path
 

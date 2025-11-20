@@ -1,4 +1,36 @@
+# Virtual environment
+venv/
+env/
+
+# Environment variables
 .env
-__pycache__
-.idea
-venv
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# PyCharm project settings
+.idea/
+
+# VSCode (if someone uses it)
+.vscode/
+
+# Logs
+*.log
+
+# Byte-compiled / optimized / DLL files
+*.py[cod]
+
+# Distribution / packaging
+build/
+dist/
+uploads/
+*.egg-info/
+
+# SQLite DB (optional)
+*.sqlite3
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -25,12 +25,12 @@ class User(Base):
     phone_number = Column(String(20), unique=True, nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # Relationships
-    assigned_tasks = relationship("Task", foreign_keys="Task.assigned_to", back_populates="user")
-    created_tasks = relationship("Task", foreign_keys="Task.created_by", back_populates="admin")
+    assigned_tasks = relationship("Task", foreign_keys="Task.assigned_to", back_populates="assigned_user")
+    created_tasks = relationship("Task", foreign_keys="Task.created_by", back_populates="admin_user")
 
 
 class Task(Base):
@@ -48,12 +48,12 @@ class Task(Base):
     completed_at = Column(DateTime, nullable=True)
     completion_message = Column(Text, nullable=True)
     completion_image = Column(String(500), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     # Relationships
-    user = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_tasks")
-    admin = relationship("User", foreign_keys=[created_by], back_populates="created_tasks")
+    assigned_user = relationship("User", foreign_keys=[assigned_to], back_populates="assigned_tasks")
+    admin_user = relationship("User", foreign_keys=[created_by], back_populates="created_tasks")
 
 
 class TaskHistory(Base):
@@ -61,7 +61,7 @@ class TaskHistory(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
-    sent_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime, default=datetime.now)
     message = Column(Text, nullable=False)
     status = Column(String(50), default="sent")  # sent, failed
     recipient_number = Column(String(20), nullable=False)

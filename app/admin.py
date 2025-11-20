@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from .database import get_db
 from .models import User, Task, TaskType, TaskFrequency
 from .schemas import (
@@ -81,7 +81,7 @@ async def create_task(
     # Validate scheduled_date is in future for CUSTOM tasks
     if (task_data.task_type == TaskType.CUSTOM and
             task_data.scheduled_date and
-            task_data.scheduled_date <= datetime.utcnow()):
+            task_data.scheduled_date <= datetime.now(timezone.utc)):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Scheduled date must be in the future for custom tasks"
@@ -120,7 +120,8 @@ async def create_task(
         print(f"WhatsApp notification failed: {e}")
 
     # Fetch the task with user relationships for response
-    task_with_users = db.query(Task).filter(Task.id == task.id).first()
+    task_with_users = (db.query(Task).options(joinedload(Task.assigned_user), joinedload(Task.admin_user))
+                       .filter(Task.id == task.id).first())
     return task_with_users
 
 
@@ -187,7 +188,7 @@ async def get_completed_tasks(
     """
     Get all completed tasks within specified days (Admin only)
     """
-    since_date = datetime.utcnow() - timedelta(days=days)
+    since_date = datetime.now(timezone.utc) - timedelta(days=days)
 
     tasks = db.query(Task).filter(
         Task.is_completed == True,
