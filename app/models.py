@@ -16,6 +16,13 @@ class TaskFrequency(str, enum.Enum):
     REPEATED = "repeated"
 
 
+class RepeatInterval(str, enum.Enum):
+    DAYS = "days"
+    WEEK = "week"
+    MONTH = "month"
+    YEAR = "year"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -25,6 +32,7 @@ class User(Base):
     phone_number = Column(String(20), unique=True, nullable=False)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
+    is_payment_collector = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
@@ -43,11 +51,21 @@ class Task(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     task_type = Column(Enum(TaskType), nullable=False)
     frequency = Column(Enum(TaskFrequency), nullable=False)
+    # For one-time tasks
+    due_date = Column(DateTime, nullable=True)
+    # For repeated tasks
+    repeat_interval = Column(Enum(RepeatInterval), nullable=True)  # days, week, month, year
+    repeat_days = Column(Integer, nullable=True)  # Number of days for "days" interval
+    repeat_end_date = Column(DateTime, nullable=True)  # When to stop repeating
+    # For scheduled tasks
     scheduled_date = Column(DateTime, nullable=True)
+    # Task status
     is_completed = Column(Boolean, default=False)
     completed_at = Column(DateTime, nullable=True)
     completion_message = Column(Text, nullable=True)
     completion_image = Column(String(500), nullable=True)
+    # Payment collector flag
+    is_payment_task = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 

@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 # from enum import Enum
-from .models import TaskType, TaskFrequency
+from .models import TaskType, TaskFrequency, RepeatInterval
 
 
 # class TaskType(str, Enum):
@@ -26,6 +26,7 @@ class UserCreateSchema(BaseModel):
     password: str
     phone_number: str
     is_admin: Optional[bool] = False
+    is_payment_collector: Optional[bool] = False
 
 
 class UserResponseSchema(BaseModel):
@@ -33,6 +34,7 @@ class UserResponseSchema(BaseModel):
     username: str
     phone_number: str
     is_active: bool
+    is_payment_collector: bool
     created_at: datetime
 
     class Config:
@@ -58,6 +60,17 @@ class TaskCreateSchema(BaseModel):
     assigned_to: int
     task_type: TaskType
     frequency: TaskFrequency
+    is_payment_task: Optional[bool] = False
+
+    # For one-time tasks
+    due_date: Optional[datetime] = None
+
+    # For repeated tasks
+    repeat_interval: Optional[RepeatInterval] = None
+    repeat_days: Optional[int] = None
+    repeat_end_date: Optional[datetime] = None
+
+    # For scheduled tasks
     scheduled_date: Optional[datetime] = None
 
 
@@ -69,7 +82,20 @@ class TaskResponseSchema(BaseModel):
     created_by: int
     task_type: TaskType
     frequency: TaskFrequency
+    is_payment_task: bool
+
+    # For one-time tasks
+    due_date: Optional[datetime]
+
+    # For repeated tasks
+    repeat_interval: Optional[RepeatInterval]
+    repeat_days: Optional[int]
+    repeat_end_date: Optional[datetime]
+
+    # For scheduled tasks
     scheduled_date: Optional[datetime]
+
+    # Task status
     is_completed: bool
     completed_at: Optional[datetime]
     completion_message: Optional[str]
@@ -86,4 +112,29 @@ class TaskResponseSchema(BaseModel):
 
 class TaskCompletionSchema(BaseModel):
     completion_message: Optional[str] = None
-    # Image will be handled via file upload separately
+
+
+class UserStatsResponseSchema(BaseModel):
+    user: UserResponseSchema
+    total_tasks: int
+    completed_tasks: int
+    pending_tasks: int
+    overdue_tasks: int
+    completed_on_time: int
+
+
+class UserWithStatsSchema(BaseModel):
+    id: int
+    username: str
+    phone_number: str
+    is_active: bool
+    is_payment_collector: bool
+    created_at: datetime
+    total_tasks: int
+    completed_tasks: int
+    pending_tasks: int
+    overdue_tasks: int
+    completed_on_time: int
+
+    class Config:
+        from_attributes = True

@@ -71,7 +71,7 @@ async def login_user(
     )
 
 
-@router.post("/admin/create-user", response_model=UserResponseSchema)
+@router.post("/admin/create-user", response_model=UserResponseSchema, operation_id="create_user_admin")
 async def create_user(
         user_data: UserCreateSchema,
         current_admin: User = Depends(admin_required),
@@ -100,7 +100,8 @@ async def create_user(
         username=user_data.username,
         phone_number=user_data.phone_number,
         hashed_password=hashed_password,
-        is_admin=user_data.is_admin
+        is_admin=user_data.is_admin,
+        is_payment_collector=user_data.is_payment_collector
     )
 
     db.add(new_user)
@@ -112,7 +113,8 @@ async def create_user(
         username=new_user.username,
         phone_number=new_user.phone_number,
         is_active=new_user.is_active,
-        created_at=new_user.created_at
+        created_at=new_user.created_at,
+        is_payment_collector=new_user.is_payment_collector
     )
 
 
@@ -123,5 +125,6 @@ async def get_profile(current_user: User = Depends(get_current_user)):
         username=current_user.username,
         phone_number=current_user.phone_number,
         is_active=current_user.is_active,
+        is_payment_collector=current_user.is_payment_collector,
         created_at=current_user.created_at
     )

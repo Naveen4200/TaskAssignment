@@ -3,11 +3,11 @@ from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
 from .database import get_db
-from .models import User, Task, TaskType, TaskFrequency
+from .models import User, Task, TaskType, TaskFrequency, RepeatInterval
 from .schemas import (
     TaskCreateSchema,
     TaskResponseSchema,
-    UserResponseSchema
+    UserResponseSchema, UserWithStatsSchema, UserStatsResponseSchema
 )
 from .dependencies import admin_required
 from .whatsapp_service import send_whatsapp_message
@@ -42,18 +42,70 @@ def api_what():
     print(response.json())
 
 
-@router.get("/users", response_model=List[UserResponseSchema])
+@router.get("/users", response_model=List[UserWithStatsSchema])
 async def get_all_users(
         current_admin: User = Depends(admin_required),
         db: Session = Depends(get_db),
         skip: int = Query(0, ge=0),
-        limit: int = Query(100, ge=1, le=1000)
+        limit: int = Query(100, ge=1, le=1000),
+        payment_collector: Optional[bool] = Query(None),
+        is_active: Optional[bool] = Query(True)
 ):
     """
-    Get all users for dropdown (Admin only)
+    Get all users with statistics (Admin only)
     """
-    users = db.query(User).filter(User.is_admin == False).offset(skip).limit(limit).all()
-    return users
+    # Base query
+    query = db.query(User).filter(User.is_admin == False)
+
+    # Apply filters
+    if payment_collector is not None:
+        query = query.filter(User.is_payment_collector == payment_collector)
+
+    if is_active is not None:
+        query = query.filter(User.is_active == is_active)
+
+    users = query.offset(skip).limit(limit).all()
+
+    # Calculate statistics for each user
+    users_with_stats = []
+    for user in users:
+        # Get task statistics
+        total_tasks = db.query(Task).filter(Task.assigned_to == user.id).count()
+        completed_tasks = db.query(Task).filter(
+            Task.assigned_to == user.id,
+            Task.is_completed == True
+        ).count()
+        pending_tasks = total_tasks - completed_tasks
+
+        # Calculate overdue tasks (tasks with due_date that passed and not completed)
+        overdue_tasks = db.query(Task).filter(
+            Task.assigned_to == user.id,
+            Task.is_completed == False,
+            Task.due_date < datetime.now(timezone.utc)
+        ).count()
+
+        # Calculate completed on time (completed before due_date)
+        completed_on_time = db.query(Task).filter(
+            Task.assigned_to == user.id,
+            Task.is_completed == True,
+            Task.completed_at <= Task.due_date
+        ).count()
+
+        users_with_stats.append({
+            "id": user.id,
+            "username": user.username,
+            "phone_number": user.phone_number,
+            "is_active": user.is_active,
+            "is_payment_collector": user.is_payment_collector,
+            "created_at": user.created_at,
+            "total_tasks": total_tasks,
+            "completed_tasks": completed_tasks,
+            "pending_tasks": pending_tasks,
+            "overdue_tasks": overdue_tasks,
+            "completed_on_time": completed_on_time
+        })
+
+    return users_with_stats
 
 
 @router.post("/tasks", response_model=TaskResponseSchema)
@@ -62,8 +114,14 @@ async def create_task(
         current_admin: User = Depends(admin_required),
         db: Session = Depends(get_db)
 ):
+    """
+    Create task with enhanced options (Admin only)
+    """
     # Check if assigned user exists and is not admin
-    assigned_user = db.query(User).filter(User.id == task_data.assigned_to, User.is_admin == False).first()
+    assigned_user = db.query(User).filter(
+        User.id == task_data.assigned_to,
+        User.is_admin == False
+    ).first()
 
     if not assigned_user:
         raise HTTPException(
@@ -71,21 +129,8 @@ async def create_task(
             detail="User not found or cannot assign tasks to admin"
         )
 
-    # Validate scheduled_date for CUSTOM tasks
-    if task_data.task_type == TaskType.CUSTOM and not task_data.scheduled_date:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Scheduled date is required for custom tasks"
-        )
-
-    # Validate scheduled_date is in future for CUSTOM tasks
-    if (task_data.task_type == TaskType.CUSTOM and
-            task_data.scheduled_date and
-            task_data.scheduled_date <= datetime.now(timezone.utc)):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Scheduled date must be in the future for custom tasks"
-        )
+    # Validate task creation rules
+    await validate_task_creation(task_data)
 
     # Create task
     task = Task(
@@ -95,6 +140,11 @@ async def create_task(
         created_by=current_admin.id,
         task_type=task_data.task_type,
         frequency=task_data.frequency,
+        is_payment_task=task_data.is_payment_task,
+        due_date=task_data.due_date,
+        repeat_interval=task_data.repeat_interval,
+        repeat_days=task_data.repeat_days,
+        repeat_end_date=task_data.repeat_end_date,
         scheduled_date=task_data.scheduled_date
     )
 
@@ -102,27 +152,170 @@ async def create_task(
     db.commit()
     db.refresh(task)
 
-    # Handle WhatsApp notification based on task type
-    try:
-        if task_data.task_type == TaskType.IMMEDIATE:
-            # Send immediate WhatsApp message
-            message = f"🚀 *New Immediate Task*\n\n*Title:* {task_data.title}\n*Description:* {task_data.description}\n*Priority:* High"
-            await send_whatsapp_message(assigned_user.phone_number, message, task.id)
-
-        elif task_data.task_type == TaskType.CUSTOM and task_data.scheduled_date:
-            # For custom tasks, schedule the message (you'll need a scheduler)
-            message = f"📅 *Scheduled Task*\n\n*Title:* {task_data.title}\n*Description:* {task_data.description}\n*Scheduled for:* {task_data.scheduled_date.strftime('%Y-%m-%d %H:%M')}"
-            # Here you would schedule the message for the specific date at 9 AM
-            await schedule_whatsapp_message(assigned_user.phone_number, message, task.id, task_data.scheduled_date)
-
-    except Exception as e:
-        # Log the error but don't fail the task creation
-        print(f"WhatsApp notification failed: {e}")
+    # Handle WhatsApp notification based on task configuration
+    await handle_whatsapp_notification(task, assigned_user)
 
     # Fetch the task with user relationships for response
-    task_with_users = (db.query(Task).options(joinedload(Task.assigned_user), joinedload(Task.admin_user))
-                       .filter(Task.id == task.id).first())
+    task_with_users = db.query(Task).filter(Task.id == task.id).first()
     return task_with_users
+
+
+async def validate_task_creation(task_data: TaskCreateSchema):
+    """Validate task creation rules"""
+    current_time = datetime.now(timezone.utc)
+
+    # For ONE_TIME tasks
+    if task_data.frequency == TaskFrequency.ONE_TIME:
+        if task_data.task_type == TaskType.IMMEDIATE:
+            # Immediate one-time task - no due date required, but can have one
+            pass
+        elif task_data.task_type == TaskType.CUSTOM:
+            # Custom one-time task requires scheduled_date
+            if not task_data.scheduled_date:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Scheduled date is required for custom one-time tasks"
+                )
+            if task_data.scheduled_date <= current_time:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Scheduled date must be in the future"
+                )
+
+    # For REPEATED tasks
+    elif task_data.frequency == TaskFrequency.REPEATED:
+        if task_data.task_type == TaskType.IMMEDIATE:
+            # Immediate repeated task - requires repeat configuration
+            if not task_data.repeat_interval:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Repeat interval is required for repeated tasks"
+                )
+            if task_data.repeat_interval == RepeatInterval.DAYS and not task_data.repeat_days:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Repeat days is required when interval is 'days'"
+                )
+        elif task_data.task_type == TaskType.CUSTOM:
+            # Custom repeated task - requires scheduled_date and repeat configuration
+            if not task_data.scheduled_date:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Scheduled date is required for custom repeated tasks"
+                )
+            if not task_data.repeat_interval:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Repeat interval is required for repeated tasks"
+                )
+            if task_data.repeat_interval == RepeatInterval.DAYS and not task_data.repeat_days:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Repeat days is required when interval is 'days'"
+                )
+
+
+async def handle_whatsapp_notification(task: Task, assigned_user: User):
+    """Handle WhatsApp notifications based on task configuration"""
+    try:
+        if task.task_type == TaskType.IMMEDIATE:
+            if task.frequency == TaskFrequency.ONE_TIME:
+                # Immediate one-time task
+                message = f"🚀 *New Immediate Task*\n\n*Title:* {task.title}\n*Description:* {task.description}\n*Due Date:* {task.due_date.strftime('%Y-%m-%d') if task.due_date else 'Not specified'}\n*Priority:* High"
+                print(f"📱 [IMMEDIATE ONE-TIME] Sending WhatsApp to {assigned_user.phone_number}: {message}")
+                await send_whatsapp_message(assigned_user.phone_number, message)
+
+            else:  # REPEATED
+                # Immediate repeated task
+                interval_text = get_interval_text(task.repeat_interval, task.repeat_days)
+                message = f"🔄 *New Repeated Task*\n\n*Title:* {task.title}\n*Description:* {task.description}\n*Repeat:* {interval_text}\n*Starts:* Immediately"
+                print(f"📱 [IMMEDIATE REPEATED] Sending WhatsApp to {assigned_user.phone_number}: {message}")
+                await send_whatsapp_message(assigned_user.phone_number, message)
+
+        else:  # CUSTOM
+            if task.frequency == TaskFrequency.ONE_TIME:
+                # Custom one-time task (scheduled)
+                message = f"📅 *Scheduled Task*\n\n*Title:* {task.title}\n*Description:* {task.description}\n*Scheduled for:* {task.scheduled_date.strftime('%Y-%m-%d %H:%M')}\n*Due Date:* {task.due_date.strftime('%Y-%m-%d') if task.due_date else 'Not specified'}"
+                print(
+                    f"⏰ [SCHEDULED ONE-TIME] Scheduling WhatsApp to {assigned_user.phone_number} at {task.scheduled_date}: {message}")
+                await schedule_whatsapp_message(assigned_user.phone_number, message, task.scheduled_date)
+
+            else:  # REPEATED
+                # Custom repeated task
+                interval_text = get_interval_text(task.repeat_interval, task.repeat_days)
+                message = f"📅 *Scheduled Repeated Task*\n\n*Title:* {task.title}\n*Description:* {task.description}\n*Starts:* {task.scheduled_date.strftime('%Y-%m-%d %H:%M')}\n*Repeat:* {interval_text}"
+                print(
+                    f"⏰ [SCHEDULED REPEATED] Scheduling WhatsApp to {assigned_user.phone_number} starting at {task.scheduled_date}: {message}")
+                await schedule_whatsapp_message(assigned_user.phone_number, message, task.scheduled_date)
+
+    except Exception as e:
+        print(f"WhatsApp notification failed: {e}")
+
+
+def get_interval_text(interval: RepeatInterval, days: int = None) -> str:
+    """Get human-readable interval text"""
+    if interval == RepeatInterval.DAYS:
+        return f"Every {days} days"
+    elif interval == RepeatInterval.WEEK:
+        return "Every week"
+    elif interval == RepeatInterval.MONTH:
+        return "Every month"
+    elif interval == RepeatInterval.YEAR:
+        return "Every year"
+    return "Unknown"
+
+
+@router.get("/user-stats/{user_id}", response_model=UserStatsResponseSchema)
+async def get_user_statistics(
+        user_id: int,
+        current_admin: User = Depends(admin_required),
+        db: Session = Depends(get_db)
+):
+    """
+    Get detailed statistics for a specific user
+    """
+    user = db.query(User).filter(User.id == user_id, User.is_admin == False).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Calculate statistics
+    total_tasks = db.query(Task).filter(Task.assigned_to == user_id).count()
+    completed_tasks = db.query(Task).filter(
+        Task.assigned_to == user_id,
+        Task.is_completed == True
+    ).count()
+    pending_tasks = total_tasks - completed_tasks
+
+    overdue_tasks = db.query(Task).filter(
+        Task.assigned_to == user_id,
+        Task.is_completed == False,
+        Task.due_date < datetime.now(timezone.utc)
+    ).count()
+
+    completed_on_time = db.query(Task).filter(
+        Task.assigned_to == user_id,
+        Task.is_completed == True,
+        Task.completed_at <= Task.due_date
+    ).count()
+
+    return UserStatsResponseSchema(
+        user=UserResponseSchema(
+            id=user.id,
+            username=user.username,
+            phone_number=user.phone_number,
+            is_active=user.is_active,
+            is_payment_collector=user.is_payment_collector,
+            created_at=user.created_at
+        ),
+        total_tasks=total_tasks,
+        completed_tasks=completed_tasks,
+        pending_tasks=pending_tasks,
+        overdue_tasks=overdue_tasks,
+        completed_on_time=completed_on_time
+    )
 
 
 @router.get("/tasks", response_model=List[TaskResponseSchema])
@@ -227,7 +420,7 @@ async def get_task_statistics(
     }
 
 
-async def schedule_whatsapp_message(phone_number: str, message: str, task_id: int, scheduled_date: datetime):
+async def schedule_whatsapp_message(phone_number: str, message: str, scheduled_date: datetime):
     """
     Schedule WhatsApp message for custom tasks
     This would integrate with a task scheduler like APScheduler

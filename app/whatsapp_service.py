@@ -1,50 +1,3 @@
-# import logging
-#
-# logger = logging.getLogger(__name__)
-#
-#
-# class WhatsAppService:
-#     def __init__(self):
-#         # Initialize your WhatsApp service here (Twilio, etc.)
-#         self.is_configured = False
-#
-#     @staticmethod
-#     async def send_message(phone_number: str, message: str) -> bool:
-#         """
-#         Send WhatsApp message immediately
-#         """
-#         try:
-#             # Implementation for your WhatsApp provider
-#             # Example for Twilio:
-#             # from twilio.rest import Client
-#             # client = Client(account_sid, auth_token)
-#             # message = client.messages.create(
-#             #     body=message,
-#             #     from_='whatsapp:+14155238886',
-#             #     to=f'whatsapp:{phone_number}'
-#             # )
-#
-#             logger.info(f"📱 WhatsApp message sent to {phone_number}: {message}")
-#             return True
-#         except Exception as e:
-#             logger.error(f"Failed to send WhatsApp message: {e}")
-#             return False
-#
-#
-# whatsapp_service = WhatsAppService()
-#
-# # WhatsApp service functions (placeholder - implement based on your WhatsApp provider)
-# async def send_whatsapp_message(phone_number: str, message: str, task_id: int):
-#     """
-#     Send immediate WhatsApp message
-#     Implement this based on your WhatsApp provider (Twilio, etc.)
-#     """
-#     print(f"📱 Sending WhatsApp to {phone_number}: {message}")
-#     # Implementation for Twilio/WhatsApp Business API would go here
-#     # For now, we'll just log it
-#     return True
-
-
 import logging
 import json
 import requests
@@ -66,20 +19,12 @@ class WhatsAppService:
         self.url = f"https://graph.facebook.com/v19.0/{self.phone_number_id}/messages"
 
     async def send_message(self, phone_number: str, message: str) -> bool:
-        """
-        Send a WhatsApp template message (hello_world)
-        phone_number: recipient phone number
-        message: dynamic text (but template must support variables)
-        """
 
         payload = {
             "messaging_product": "whatsapp",
             "to": phone_number,
-            "type": "template",
-            "template": {
-                "name": "hello_world",
-                "language": {"code": "en_US"}
-            }
+            "type": "text",
+            "text": {"body": message}
         }
 
         headers = {
@@ -103,6 +48,5 @@ whatsapp_service = WhatsAppService()
 
 
 # Wrapper function you can call anywhere
-async def send_whatsapp_message(phone_number: str, message: str, task_id: int):
-    logger.info(f"📨 Sending WhatsApp (task_id={task_id}) → {phone_number}")
+async def send_whatsapp_message(phone_number: str, message: str):
     return await whatsapp_service.send_message(phone_number, message)
